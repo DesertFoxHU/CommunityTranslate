@@ -3,7 +3,7 @@ package me.bence.ctranslate;
 import javafx.fxml.FXML;
 import javafx.scene.control.Label;
 
-public class HelloController {
+public class EditorController {
     @FXML
     private Label welcomeText;
 
