@@ -2,13 +2,31 @@ package me.bence.ctranslate;
 
 import javafx.fxml.FXML;
 import javafx.scene.control.Label;
+import me.bence.ctranslate.lang.LangFile;
 
 public class EditorController {
-    @FXML
-    private Label welcomeText;
+
+    private LangFile source;
+    private LangFile target;
 
     @FXML
-    protected void onHelloButtonClick() {
-        welcomeText.setText("Welcome to JavaFX Application!");
+    private void initialize() {
+
     }
+
+    @FXML
+    private void onOpenSource(){
+
+    }
+
+    @FXML
+    private void onOpenTarget(){
+
+    }
+
+    @FXML
+    private void onSave(){
+
+    }
+
 }
