@@ -20,10 +20,24 @@
     </top>
 
     <center>
-
+        <TableView fx:id="table" editable="true">
+            <columns>
+                <TableColumn fx:id="keyColumn" text="Key" prefWidth="250"/>
+                <TableColumn fx:id="sourceColumn" text="Source" prefWidth="350"/>
+                <TableColumn fx:id="translationColumn" text="Translation" prefWidth="350"/>
+                <TableColumn fx:id="statusColumn" text="Status" prefWidth="110"/>
+            </columns>
+        </TableView>
     </center>
 
     <bottom>
-
+        <HBox spacing="20">
+            <padding>
+                <Insets top="5" right="10" bottom="5" left="10"/>
+            </padding>
+            <Label fx:id="fileLabel" text="There isn't an opened file"/>
+            <Region HBox.hgrow="ALWAYS"/>
+            <Label fx:id="progressLabel"/>
+        </HBox>
     </bottom>
 </BorderPane>

@@ -1,0 +1,7 @@
+{
+  "test": "Test",
+  "menu.main": "Main Menu",
+  "gui.health": "Health",
+  "entity.zombie": "Zombie",
+  "human.badly.hurt": "You are badly hurt by {0}"
+}

@@ -1,32 +1,211 @@
 package me.bence.ctranslate;
 
+import javafx.beans.Observable;
+import javafx.beans.property.ReadOnlyStringWrapper;
+import javafx.collections.FXCollections;
+import javafx.collections.ListChangeListener;
+import javafx.collections.ObservableList;
+import javafx.collections.transformation.FilteredList;
 import javafx.fxml.FXML;
-import javafx.scene.control.Label;
+import javafx.scene.control.*;
+import javafx.scene.control.cell.TextFieldTableCell;
+import javafx.stage.FileChooser;
+import javafx.stage.Window;
 import me.bence.ctranslate.lang.LangFile;
+import me.bence.ctranslate.lang.format.LangFormatException;
+import me.bence.ctranslate.lang.format.LangFormatRegistry;
+import me.bence.ctranslate.model.TranslationEntry;
+import me.bence.ctranslate.model.TranslationStatus;
+import me.bence.ctranslate.model.TranslationTable;
+
+import java.io.File;
+import java.nio.file.Path;
+import java.util.Locale;
 
 public class EditorController {
+    private static final String FILTER_ALL = "All";
+    private static final String FILTER_MISSING = "Missing";
+    private static final String FILTER_TRANSLATED = "Translated";
+
+    @FXML private TableView<TranslationEntry> table;
+    @FXML private TableColumn<TranslationEntry, String> keyColumn;
+    @FXML private TableColumn<TranslationEntry, String> sourceColumn;
+    @FXML private TableColumn<TranslationEntry, String> translationColumn;
+    @FXML private TableColumn<TranslationEntry, TranslationStatus> statusColumn;
+    @FXML private TextField searchField;
+    @FXML private ComboBox<String> statusFilter;
+    @FXML private Label fileLabel;
+    @FXML private Label progressLabel;
+
+    private final LangFormatRegistry registry = new LangFormatRegistry();
+
+    private final ObservableList<TranslationEntry> rows = FXCollections.observableArrayList(entry -> new Observable[] { entry.statusProperty() });
+    private final FilteredList<TranslationEntry> filteredRows = new FilteredList<>(rows);
 
     private LangFile source;
     private LangFile target;
 
     @FXML
     private void initialize() {
+        keyColumn.setCellValueFactory(cell -> new ReadOnlyStringWrapper(cell.getValue().getKey()));
+        sourceColumn.setCellValueFactory(cell -> cell.getValue().sourceTextProperty());
+        translationColumn.setCellValueFactory(cell -> cell.getValue().translationProperty());
+        translationColumn.setCellFactory(TextFieldTableCell.forTableColumn());
+        statusColumn.setCellValueFactory(cell -> cell.getValue().statusProperty());
+        statusColumn.setCellFactory(column -> new TableCell<>() {
+            @Override
+            protected void updateItem(TranslationStatus status, boolean empty) {
+                super.updateItem(status, empty);
+                if(empty || status == null){
+                    setText(null);
+                }
+                else {
+                    setText(status == TranslationStatus.MISSING ? FILTER_MISSING : FILTER_TRANSLATED);
+                }
+            }
+        });
 
+        table.setItems(filteredRows);
+
+        statusFilter.getItems().setAll(FILTER_ALL, FILTER_MISSING, FILTER_TRANSLATED);
+        statusFilter.setValue(FILTER_ALL);
+
+        searchField.textProperty().addListener((obs, oldValue, newValue) -> updateFilter());
+        statusFilter.valueProperty().addListener((obs, oldValue, newValue) -> updateFilter());
+        rows.addListener((ListChangeListener<? super TranslationEntry>) change -> updateProgress());
+        updateProgress();
     }
 
     @FXML
     private void onOpenSource(){
+        Path file = chooseFile("Open source file", false);
+        if(file == null){
+            return;
+        }
 
+        try{
+            source = LangFile.load(file, registry);
+            target = null;
+            refreshRows();
+        }
+        catch(LangFormatException e) {
+            showError("Couldn't open source file", e);
+        }
     }
 
     @FXML
     private void onOpenTarget(){
+        if(source == null){
+            showInfo("First open a source file");
+        }
+        Path file = chooseFile("Open Translation file", false);
+        if(file == null){
+            return;
+        }
 
+        try {
+            target = LangFile.load(file, registry);
+            refreshRows();
+        }
+        catch(LangFormatException e){
+            showError("Couldn't open the translation file", e);
+        }
     }
 
     @FXML
     private void onSave(){
+        if(source == null){
+            showInfo("There is nothing to be saved");
+            return;
+        }
+        if(target == null){
+            Path file = chooseFile("Save translation", true);
+            if(file == null){
+                return;
+            }
+            target = LangFile.createEmpty(file, source.format());
+        }
+        TranslationTable.applyTo(rows, target);
+        try {
+            target.save();
+            updateFileLabel();
+        }
+        catch(LangFormatException e){
+            showError("Couldn't be saved", e);
+        }
+    }
 
+    private void refreshRows(){
+        rows.setAll(TranslationTable.build(source, target));
+        updateFileLabel();
+    }
+
+    private void updateFilter(){
+        String search = searchField.getText() == null ? "" : searchField.getText().trim().toLowerCase(Locale.ROOT);
+        String filter = statusFilter.getValue();
+        filteredRows.setPredicate(entry -> matchesStatus(entry, filter) && matchesSearch(entry, search));
+    }
+
+    private boolean matchesStatus(TranslationEntry entry, String filter) {
+        if (FILTER_MISSING.equals(filter)) {
+            return entry.getStatus() == TranslationStatus.MISSING;
+        }
+        if (FILTER_TRANSLATED.equals(filter)) {
+            return entry.getStatus() == TranslationStatus.TRANSLATED;
+        }
+        return true;
+    }
+
+    private boolean matchesSearch(TranslationEntry entry, String search) {
+        if (search.isEmpty()) {
+            return true;
+        }
+        return contains(entry.getKey(), search) || contains(entry.getSourceText(), search) || contains(entry.getTranslation(), search);
+    }
+
+    private static boolean contains(String text, String search) {
+        return text != null && text.toLowerCase(Locale.ROOT).contains(search);
+    }
+
+    private void updateProgress(){
+        long translated = rows.stream().filter(entry -> entry.getStatus() == TranslationStatus.TRANSLATED).count();
+        progressLabel.setText(rows.isEmpty() ? "" : translated + " / " + rows.size() + " translated");
+    }
+
+    private void updateFileLabel(){
+        String sourceName = source == null ? "-" : source.path().getFileName().toString();
+        String targetName = target == null ? "not saved" : target.path().getFileName().toString();
+        fileLabel.setText("Source: " + sourceName + " -> Translation: " + targetName);
+    }
+
+    private Path chooseFile(String title, boolean save){
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle(title);
+        chooser.getExtensionFilters().addAll(
+                new FileChooser.ExtensionFilter("JSON language file", "*.json"),
+                new FileChooser.ExtensionFilter("Every file", "*.*"));
+
+        if(source != null && source.path().getParent() != null){
+            chooser.setInitialDirectory(source.path().getParent().toFile());
+        }
+
+        Window window = table.getScene().getWindow();
+        File file = save ? chooser.showSaveDialog(window) : chooser.showOpenDialog(window);
+        return file == null ? null : file.toPath();
+    }
+
+    private void showError(String header, Exception e) {
+        Alert alert = new Alert(Alert.AlertType.ERROR);
+        alert.setTitle("Error");
+        alert.setHeaderText(header);
+        alert.setContentText(e.getMessage());
+        alert.showAndWait();
+    }
+
+    private void showInfo(String message) {
+        Alert alert = new Alert(Alert.AlertType.INFORMATION, message);
+        alert.setHeaderText(null);
+        alert.showAndWait();
     }
 
 }
