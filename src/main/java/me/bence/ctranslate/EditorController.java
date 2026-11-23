@@ -26,6 +26,7 @@ public class EditorController {
     private static final String FILTER_ALL = "All";
     private static final String FILTER_MISSING = "Missing";
     private static final String FILTER_TRANSLATED = "Translated";
+    private static final String FILTER_INVALID = "Invalid";
 
     @FXML private TableView<TranslationEntry> table;
     @FXML private TableColumn<TranslationEntry, String> keyColumn;
@@ -56,18 +57,26 @@ public class EditorController {
             @Override
             protected void updateItem(TranslationStatus status, boolean empty) {
                 super.updateItem(status, empty);
-                if(empty || status == null){
+                setTooltip(null);
+                setStyle("");
+                if (empty || status == null) {
                     setText(null);
+                    return;
                 }
-                else {
-                    setText(status == TranslationStatus.MISSING ? FILTER_MISSING : FILTER_TRANSLATED);
+                setText(statusLabel(status));
+                if (status == TranslationStatus.INVALID) {
+                    setStyle("-fx-text-fill: #c62828; -fx-font-weight: bold;");
+                    TranslationEntry entry = getTableRow() == null ? null : getTableRow().getItem();
+                    if (entry != null) {
+                        setTooltip(new Tooltip(entry.getProblem()));
+                    }
                 }
             }
         });
 
         table.setItems(filteredRows);
 
-        statusFilter.getItems().setAll(FILTER_ALL, FILTER_MISSING, FILTER_TRANSLATED);
+        statusFilter.getItems().setAll(FILTER_ALL, FILTER_MISSING, FILTER_TRANSLATED, FILTER_INVALID);
         statusFilter.setValue(FILTER_ALL);
 
         searchField.textProperty().addListener((obs, oldValue, newValue) -> updateFilter());
@@ -97,6 +106,7 @@ public class EditorController {
     private void onOpenTarget(){
         if(source == null){
             showInfo("First open a source file");
+            return;
         }
         Path file = chooseFile("Open Translation file", false);
         if(file == null){
@@ -116,6 +126,10 @@ public class EditorController {
     private void onSave(){
         if(source == null){
             showInfo("There is nothing to be saved");
+            return;
+        }
+        long invalid = rows.stream().filter(e -> e.getStatus() == TranslationStatus.INVALID).count();
+        if (invalid > 0 && !confirm(invalid + " translation(s) have placeholder problems. Save anyway?")) {
             return;
         }
         if(target == null){
@@ -146,14 +160,16 @@ public class EditorController {
         filteredRows.setPredicate(entry -> matchesStatus(entry, filter) && matchesSearch(entry, search));
     }
 
+    private static String statusLabel(TranslationStatus status) {
+        return switch (status) {
+            case MISSING -> FILTER_MISSING;
+            case TRANSLATED -> FILTER_TRANSLATED;
+            case INVALID -> FILTER_INVALID;
+        };
+    }
+
     private boolean matchesStatus(TranslationEntry entry, String filter) {
-        if (FILTER_MISSING.equals(filter)) {
-            return entry.getStatus() == TranslationStatus.MISSING;
-        }
-        if (FILTER_TRANSLATED.equals(filter)) {
-            return entry.getStatus() == TranslationStatus.TRANSLATED;
-        }
-        return true;
+        return FILTER_ALL.equals(filter) || statusLabel(entry.getStatus()).equals(filter);
     }
 
     private boolean matchesSearch(TranslationEntry entry, String search) {
@@ -167,9 +183,10 @@ public class EditorController {
         return text != null && text.toLowerCase(Locale.ROOT).contains(search);
     }
 
-    private void updateProgress(){
-        long translated = rows.stream().filter(entry -> entry.getStatus() == TranslationStatus.TRANSLATED).count();
-        progressLabel.setText(rows.isEmpty() ? "" : translated + " / " + rows.size() + " translated");
+    private void updateProgress() {
+        long translated = rows.stream().filter(e -> e.getStatus() == TranslationStatus.TRANSLATED).count();
+        long invalid = rows.stream().filter(e -> e.getStatus() == TranslationStatus.INVALID).count();
+        progressLabel.setText(rows.isEmpty() ? "" : translated + " / " + rows.size() + " translated" + (invalid > 0 ? ", " + invalid + " invalid" : ""));
     }
 
     private void updateFileLabel(){
@@ -206,6 +223,12 @@ public class EditorController {
         Alert alert = new Alert(Alert.AlertType.INFORMATION, message);
         alert.setHeaderText(null);
         alert.showAndWait();
+    }
+
+    private boolean confirm(String message) {
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION, message, ButtonType.YES, ButtonType.NO);
+        alert.setHeaderText(null);
+        return alert.showAndWait().filter(button -> button == ButtonType.YES).isPresent();
     }
 
 }
