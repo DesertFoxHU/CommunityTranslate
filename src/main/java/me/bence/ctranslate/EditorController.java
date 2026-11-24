@@ -11,15 +11,22 @@ import javafx.scene.control.*;
 import javafx.scene.control.cell.TextFieldTableCell;
 import javafx.stage.FileChooser;
 import javafx.stage.Window;
+import me.bence.ctranslate.data.Database;
+import me.bence.ctranslate.data.Project;
+import me.bence.ctranslate.data.ProjectRepository;
 import me.bence.ctranslate.lang.LangFile;
 import me.bence.ctranslate.lang.format.LangFormatException;
 import me.bence.ctranslate.lang.format.LangFormatRegistry;
 import me.bence.ctranslate.model.TranslationEntry;
 import me.bence.ctranslate.model.TranslationStatus;
 import me.bence.ctranslate.model.TranslationTable;
+import me.bence.ctranslate.util.DialogUtil;
 
 import java.io.File;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.SQLException;
+import java.util.List;
 import java.util.Locale;
 
 public class EditorController {
@@ -37,12 +44,15 @@ public class EditorController {
     @FXML private ComboBox<String> statusFilter;
     @FXML private Label fileLabel;
     @FXML private Label progressLabel;
+    @FXML private MenuButton recentMenu;
 
     private final LangFormatRegistry registry = new LangFormatRegistry();
 
     private final ObservableList<TranslationEntry> rows = FXCollections.observableArrayList(entry -> new Observable[] { entry.statusProperty() });
     private final FilteredList<TranslationEntry> filteredRows = new FilteredList<>(rows);
 
+    private ProjectRepository projects;
+    private Project currentProject;
     private LangFile source;
     private LangFile target;
 
@@ -83,6 +93,14 @@ public class EditorController {
         statusFilter.valueProperty().addListener((obs, oldValue, newValue) -> updateFilter());
         rows.addListener((ListChangeListener<? super TranslationEntry>) change -> updateProgress());
         updateProgress();
+
+        try{
+            projects = new ProjectRepository(new Database(Database.defaultLocation()));
+        }
+        catch(SQLException e){
+            DialogUtil.showError("Database unavailable, recent projects are disabled", e);
+        }
+        refreshRecentMenu();
     }
 
     @FXML
@@ -93,19 +111,20 @@ public class EditorController {
         }
 
         try{
+            loadSource(file);
             source = LangFile.load(file, registry);
             target = null;
             refreshRows();
         }
         catch(LangFormatException e) {
-            showError("Couldn't open source file", e);
+            DialogUtil.showError("Couldn't open source file", e);
         }
     }
 
     @FXML
     private void onOpenTarget(){
         if(source == null){
-            showInfo("First open a source file");
+            DialogUtil.showInfo("First open a source file");
             return;
         }
         Path file = chooseFile("Open Translation file", false);
@@ -114,22 +133,23 @@ public class EditorController {
         }
 
         try {
+            loadTarget(file);
             target = LangFile.load(file, registry);
             refreshRows();
         }
         catch(LangFormatException e){
-            showError("Couldn't open the translation file", e);
+            DialogUtil.showError("Couldn't open the translation file", e);
         }
     }
 
     @FXML
     private void onSave(){
         if(source == null){
-            showInfo("There is nothing to be saved");
+            DialogUtil.showInfo("There is nothing to be saved");
             return;
         }
         long invalid = rows.stream().filter(e -> e.getStatus() == TranslationStatus.INVALID).count();
-        if (invalid > 0 && !confirm(invalid + " translation(s) have placeholder problems. Save anyway?")) {
+        if (invalid > 0 && !DialogUtil.confirm(invalid + " translation(s) have placeholder problems. Save anyway?")) {
             return;
         }
         if(target == null){
@@ -142,10 +162,11 @@ public class EditorController {
         TranslationTable.applyTo(rows, target);
         try {
             target.save();
+            rememberTarget();
             updateFileLabel();
         }
         catch(LangFormatException e){
-            showError("Couldn't be saved", e);
+            DialogUtil.showError("Couldn't be saved", e);
         }
     }
 
@@ -211,24 +232,91 @@ public class EditorController {
         return file == null ? null : file.toPath();
     }
 
-    private void showError(String header, Exception e) {
-        Alert alert = new Alert(Alert.AlertType.ERROR);
-        alert.setTitle("Error");
-        alert.setHeaderText(header);
-        alert.setContentText(e.getMessage());
-        alert.showAndWait();
+    private void loadSource(Path file) throws LangFormatException {
+        source = LangFile.load(file, registry);
+        target = null;
+        currentProject = null;
+        if(projects != null){
+            try {
+                currentProject = projects.saveProject(projectName(file), file);
+            }
+            catch(SQLException e){
+                DialogUtil.showError("Couldn't save project", e);
+            }
+        }
+        refreshRows();
+        refreshRecentMenu();
     }
 
-    private void showInfo(String message) {
-        Alert alert = new Alert(Alert.AlertType.INFORMATION, message);
-        alert.setHeaderText(null);
-        alert.showAndWait();
+    private void loadTarget(Path file) throws LangFormatException {
+        target = LangFile.load(file, registry);
+        rememberTarget();
+        refreshRows();
     }
 
-    private boolean confirm(String message) {
-        Alert alert = new Alert(Alert.AlertType.CONFIRMATION, message, ButtonType.YES, ButtonType.NO);
-        alert.setHeaderText(null);
-        return alert.showAndWait().filter(button -> button == ButtonType.YES).isPresent();
+    private void rememberTarget(){
+        if(projects == null || currentProject == null || target == null){
+            return;
+        }
+        try{
+            projects.addTranslationFile(currentProject.id(), target.path());
+        }
+        catch(SQLException e){
+            DialogUtil.showError("Couldn't save translation file", e);
+        }
+        refreshRecentMenu();
     }
 
+    private void refreshRecentMenu() {
+        recentMenu.getItems().clear();
+        if (projects != null) {
+            try {
+                for (Project project : projects.findRecentProjects()) {
+                    List<Path> files = projects.findTranslationFiles(project.id());
+                    if (files.isEmpty()) {
+                        addRecentItem(project.name() + " (source only)", project.sourcePath(), null);
+                    }
+                    for (Path file : files) {
+                        addRecentItem(project.name() + " – " + file.getFileName(), project.sourcePath(), file);
+                    }
+                }
+            } catch (SQLException e) {
+                DialogUtil.showError("Couldn't load recent projects", e);
+            }
+        }
+        recentMenu.setDisable(recentMenu.getItems().isEmpty());
+    }
+
+    private void addRecentItem(String text, Path sourceFile, Path targetFile) {
+        MenuItem item = new MenuItem(text);
+        item.setOnAction(event -> openRecent(sourceFile, targetFile));
+        recentMenu.getItems().add(item);
+    }
+
+    private void openRecent(Path sourceFile, Path targetFile) {
+        try {
+            loadSource(sourceFile);
+            if (targetFile != null) {
+                if (Files.exists(targetFile)) {
+                    loadTarget(targetFile);
+                } else {
+                    DialogUtil.showInfo("The translation file no longer exists: " + targetFile);
+                }
+            }
+        } catch (LangFormatException e) {
+            DialogUtil.showError("Couldn't open project", e);
+        }
+    }
+
+    private static String projectName(Path file) {
+        Path folder = file.toAbsolutePath().getParent();
+        if (folder != null && folder.getFileName() != null
+                && folder.getFileName().toString().equalsIgnoreCase("lang")
+                && folder.getParent() != null) {
+            folder = folder.getParent();
+        }
+        return folder == null || folder.getFileName() == null
+                ? file.getFileName().toString()
+                : folder.getFileName().toString();
+    }
 }

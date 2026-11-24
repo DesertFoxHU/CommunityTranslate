@@ -10,6 +10,7 @@
 <BorderPane xmlns:fx="http://javafx.com/fxml" fx:controller="me.bence.ctranslate.EditorController">
     <top>
         <ToolBar>
+            <MenuButton fx:id="recentMenu" text="Recent projects"/>
             <Button text="Open Source" onAction="#onOpenSource"/>
             <Button text="Open Translation" onAction="#onOpenTarget"/>
             <Button text="Save" onAction="#onSave"/>
