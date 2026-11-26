@@ -1,6 +1,5 @@
-package me.bence.ctranslate.lang.validation;
+package me.bence.ctranslate.validation;
 
-import me.bence.ctranslate.validation.PlaceholderValidator;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
