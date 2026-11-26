@@ -7,13 +7,13 @@ import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class PlaceholderValidator {
+public final class PlaceholderValidator {
 
     private static final Pattern PLACEHOLDER = Pattern.compile(
             "%(?:\\d+\\$)?[-#+0,(]*\\d*(?:\\.\\d+)?[a-zA-Z]" + "|\\{[^{}\\s]*}" + "|§[0-9a-fk-orA-FK-OR]"
     );
 
-    public PlaceholderValidator() {
+    private PlaceholderValidator() {
     }
 
     public static List<String> extract(String text){

@@ -18,7 +18,7 @@ public class JsonLangFormatTest {
 
     @Test
     void supportJsonFiles(){
-        assertTrue(format.supports(Path.of("en_us.json")));
+        assertTrue(format.supports(Path.of("samples/en_us.json")));
         assertTrue(format.supports(Path.of("a.JSON")));
         assertFalse(format.supports(Path.of("en_us.text")));
     }

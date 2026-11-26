@@ -3,7 +3,10 @@ package me.bence.ctranslate.util;
 import javafx.scene.control.Alert;
 import javafx.scene.control.ButtonType;
 
-public class DialogUtil {
+public final class DialogUtil {
+
+    private DialogUtil() {
+    }
 
     public static void showError(String header, Exception e) {
         Alert alert = new Alert(Alert.AlertType.ERROR);
